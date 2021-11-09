@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:slack="http://www.mulesoft.org/schema/mule/slack" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:workday="http://www.mulesoft.org/schema/mule/workday" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/workday http://www.mulesoft.org/schema/mule/workday/current/mule-workday.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/slack http://www.mulesoft.org/schema/mule/slack/current/mule-slack.xsd">
+	<flow name="workday2slack-businessprocessManualFlow" doc:id="1c6d2faf-7e45-4345-bf69-769085e3c37f" >
+		<http:listener doc:name="Listener" doc:id="341986c3-ea23-4848-a84c-8ffe2805a0bf" path="/" config-ref="HTTP_Listener_config"/>
+		<flow-ref doc:name="Flow Reference" doc:id="8c765025-b13b-4dad-9a08-b6ea6e791735" name="workday2slack-businessprocessFlow"/>
+	</flow>
+	<flow name="workday2slack-businessprocessFlow" doc:id="8993b390-0882-4873-a92b-ed1a93e9245b" >
+		<logger level="INFO" doc:name="Logger" doc:id="7cda6c41-15e2-4ad7-a965-920b8a1d2527" message="Starting workday2slack-businessprocessFlow..."/>
+		<ee:transform doc:name="Transform Message" doc:id="52d2c404-1b1f-49ef-877c-22589b00be89" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/xml
+ns ns0 urn:com.workday/bsvc
+---
+{
+	ns0#Get_Workers_Request @(ns0#version: "v30.0"): {
+		ns0#Request_Criteria: {
+			ns0#Transaction_Log_Criteria_Data: {
+				ns0#Transaction_Date_Range_Data: {
+					ns0#Updated_From: "1970-01-01T00:00:00.000-08:00",
+					ns0#Updated_Through: "2021-08-26T00:00:00.000-08:00",
+					ns0#Effective_From: "2021-08-21T00:00:00.000-08:00",
+					ns0#Effective_Through: "2021-08-26T00:00:00.000-08:00"
+				}
+			}
+		},
+		ns0#Response_Group: {
+			ns0#Include_Reference: 1,
+			ns0#Include_Transaction_Log_Data: 1
+		}
+	}
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<workday:human-resources doc:name="Human resources" doc:id="c32f215b-bb33-4721-b8a0-7716d192b202" config-ref="Workday_Config" operation="Get_Workers"/>
+		<ee:transform doc:name="Transform Message" doc:id="29a318ab-1097-43cb-9faf-205d7abdd333" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+ns ns0 urn:com.workday/bsvc
+output application/java
+---
+payload.ns0#Get_Workers_Response.ns0#Response_Data.*ns0#Worker map (item, index) -> {
+	"Employee_ID": item.ns0#Worker_Reference.*ns0#ID[?($.@ns0#"type"=='Employee_ID')][0],
+
+	"Transaction_Log_Entry": item.ns0#Worker_Data.ns0#Transaction_Log_Entry_Data.*ns0#Transaction_Log_Entry map (item, index) -> {
+		
+		"Transaction_Log_Description": item.ns0#Transaction_Log_Data.ns0#Transaction_Log_Description,
+		"Business_Process_Type": item.ns0#Transaction_Log_Data.ns0#Transaction_Log_Type_Reference.*ns0#ID[?($.@ns0#"type"=='Business_Process_Type')][0],
+		"Event_Lite_Type_ID": item.ns0#Transaction_Log_Data.ns0#Transaction_Log_Type_Reference.*ns0#ID[?($.@ns0#"type"=='Event_Lite_Type_ID')][0],
+		"Transaction_Effective_Moment": item.ns0#Transaction_Log_Data.ns0#Transaction_Effective_Moment,
+		"Transaction_Entry_Moment": item.ns0#Transaction_Log_Data.ns0#Transaction_Entry_Moment
+	}
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="8623d925-ce72-4eb8-b93d-5a3f61cfb297" message="## Looping..."/>
+		<foreach doc:name="For Each" doc:id="15a29fdd-c800-4eca-90d1-5b3384395974" collection="#[payload]">
+			<choice doc:name="Choice" doc:id="5159d3a1-0faa-4694-bbcf-7e54fd55ec7f" >
+				<when expression="payload.Transaction_Log_Entry != null">
+					<set-variable value="#[payload.Employee_ID]" doc:name="Set Variable" doc:id="7e4b7e1e-6821-4f69-b479-9ca8d017770f" variableName="Employee_ID" />
+					<foreach doc:name="For Each" doc:id="99483a69-0fc3-44c2-a2a3-e7340e1490ef" collection='#[payload."Transaction_Log_Entry"]'>
+				<ee:transform doc:name="Transform Message" doc:id="287c8fda-24bc-432a-a29a-e3debf9fe6bf">
+				<ee:message>
+					<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"Employee_ID": vars.Employee_ID,
+	"Transaction_Log_Description": payload."Transaction_Log_Description",
+	"Business_Process_Type": payload.Event_Lite_Type_ID default payload.Business_Process_Type,
+	"Transaction_Effective_Moment": payload.Transaction_Effective_Moment as String {format : "dd-MM-yyyy HH:mm:ss"} default "",
+	"Transaction_Entry_Moment": payload.Transaction_Entry_Moment as String {format : "dd-MM-yyyy HH:mm:ss"} default ""
+}]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+				<logger level="INFO" doc:name="Logger" doc:id="d9918b30-9061-4484-bb71-c7e4fe7dad2f" message="#[payload]" />
+				<flow-ref doc:name="Flow Reference" doc:id="ae481649-868b-4d17-aa6d-add8205ece8d" name="workday2slack-slackFlow" />
+			</foreach>
+				</when>
+				<otherwise >
+					<logger level="INFO" doc:name="Logger" doc:id="b2996fdd-51aa-458f-89a0-9c0be5279a44" message="Transaction Log was Null."/>
+				</otherwise>
+			</choice>
+		</foreach>
+		<set-payload value="Success" doc:name="Set Payload" doc:id="0c0e8b68-19cd-4911-a32f-fb52f5a01c1d" />
+	</flow>
+	<flow name="workday2slack-slackFlow" >
+		<ee:transform doc:name="Transform Message" doc:id="1d9ba208-51a2-4884-bc45-9449920fee20" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"Message": payload.Employee_ID default "" ++ " / " ++ payload.Transaction_Log_Description default "" ++ " / " ++ payload.Business_Process_Type default "" ++ " / " ++ payload.Transaction_Effective_Moment default "" ++ " / " ++ payload.Transaction_Entry_Moment default ""
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<http:request method="POST" doc:name="Slack - Post Message" doc:id="4f04f922-9aee-47da-b694-2bc39ba54b7c" config-ref="slack-sys-api-httpRequestConfig" path="/chat.postMessage" outputMimeType="application/json">
+      <http:body><![CDATA[#[output application/json ---
+{
+	"token": p('slack.access-token'),
+	"channel" : p('slack.channel'),
+	"text" : payload.Message
+}]]]></http:body>
+      <http:headers><![CDATA[#[output application/java
+---
+{
+	"Authorization" : "Bearer " ++ p('slack.access-token'),
+	"Content-Type" : "application/json; charset=utf-8"
+}]]]></http:headers>
+        </http:request>
+
+		<set-payload value="Success!" doc:name="Set Payload" doc:id="d707fbb1-b536-4689-b0f3-af45ed16421d" />
+	</flow>	
+</mule>
