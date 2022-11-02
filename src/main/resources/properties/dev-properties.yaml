@@ -1,0 +1,23 @@
+# Listener configuration
+https:
+  host: "0.0.0.0"
+  port: "8082"
+  
+# Endpoint Configurations
+slack:
+  host: "slack.com"
+  port: "443"
+  path: "/api"
+  ping-url: "status.slack.com"
+  response-timeout: "60000"
+  connection-idle-timeout: "3000"
+  http-frequency: "5000"
+  http-reconnection-attempts: "2"
+  access-token: "[SLACK ACCESS TOKEN]"
+  channel: "demos-pocs-and-prototyping"
+    
+workday:
+  password: "[WORKDAY PASSWORD]"
+  hostname: "[WORKDAY HOST]"
+  tenantname: "[WORKDAY TENANT]"
+  username: "[WORKDAY.USERNAME]"
